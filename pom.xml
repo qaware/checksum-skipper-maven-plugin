@@ -125,8 +125,6 @@
                 <version>${maven-plugin-tools.version}</version>
                 <configuration>
                     <goalPrefix>skipper</goalPrefix>
-                    <!-- the mojos only arrive in Task 5 -->
-                    <skipErrorNoDescriptorsFound>true</skipErrorNoDescriptorsFound>
                 </configuration>
             </plugin>
         </plugins>
