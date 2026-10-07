@@ -54,9 +54,10 @@
                             <goal>run</goal>
                         </goals>
                         <configuration>
+                            <skip>${codegen.skip}</skip>
                             <target>
                                 <mkdir dir="${project.build.directory}"/>
-                                <echo file="${project.build.directory}/decisions.txt" append="true">${codegen.skip},</echo>
+                                <echo file="${project.build.directory}/runs.txt" append="true">ran,</echo>
                             </target>
                         </configuration>
                     </execution>
