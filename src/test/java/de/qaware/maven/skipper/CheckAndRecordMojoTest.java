@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,8 +33,6 @@ class CheckAndRecordMojoTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        project = new MavenProject();
-        project.setFile(baseDir.resolve("pom.xml").toFile());
         Files.createDirectories(baseDir.resolve("migrations"));
         Files.writeString(baseDir.resolve("migrations/V1.sql"), "create table a (id int);");
         checksumFile = baseDir.resolve("target/inputs.sha256").toFile();
@@ -140,6 +139,7 @@ class CheckAndRecordMojoTest {
         build();
         Files.writeString(migration, "create table a (id int, name text);");
         check(new HashMap<>(), checksumFile).execute();
+        assertThat(checksumFile).doesNotExist();
         // the expensive step half-wrote its outputs and failed, record never ran
         Files.writeString(migration, "create table a (id int);");
 
@@ -149,8 +149,33 @@ class CheckAndRecordMojoTest {
     }
 
     @Test
-    void propertyDefinedInThePomWarns() throws Exception {
-        project.getProperties().setProperty(PROPERTY, "false");
+    void propertyDefinedInTheModelFails() {
+        CheckMojo check = check(new HashMap<>(), checksumFile);
+        project.getProperties().setProperty(PROPERTY, "true");
+
+        assertThatThrownBy(check::execute)
+                .isInstanceOf(MojoExecutionException.class)
+                .hasMessageContaining(PROPERTY).hasMessageContaining("<properties>");
+        assertThat(project.getProperties()).containsEntry(PROPERTY, "true");
+    }
+
+    @Test
+    void propertySetOnTheCommandLineWarns() throws Exception {
+        RecordingLog log = new RecordingLog();
+        CheckMojo check = check(new HashMap<>(), checksumFile);
+        check.userProperties.setProperty(PROPERTY, "true");
+        check.setLog(log);
+
+        check.execute();
+
+        assertThat(log.warnings).singleElement().asString()
+                .contains(PROPERTY).contains("command line");
+    }
+
+    @Test
+    void undeletableRecordWarnsInsteadOfFailing() throws Exception {
+        Files.createDirectories(checksumFile.toPath());
+        Files.writeString(checksumFile.toPath().resolve("blocker"), "");
         RecordingLog log = new RecordingLog();
         CheckMojo check = check(new HashMap<>(), checksumFile);
         check.setLog(log);
@@ -158,8 +183,7 @@ class CheckAndRecordMojoTest {
         check.execute();
 
         assertThat(project.getProperties()).containsEntry(PROPERTY, "false");
-        assertThat(log.warnings).singleElement().asString()
-                .contains(PROPERTY).contains("<properties>");
+        assertThat(log.warnings).singleElement().asString().contains("Could not delete");
     }
 
     @Test
@@ -211,10 +235,16 @@ class CheckAndRecordMojoTest {
         record(context, file).execute();
     }
 
+    /** A fresh context means a new Maven run, which starts with a fresh project. */
     private CheckMojo check(Map<Object, Object> context, File file) {
+        if (context.isEmpty()) {
+            project = new MavenProject();
+            project.setFile(baseDir.resolve("pom.xml").toFile());
+        }
         CheckMojo mojo = new CheckMojo();
         mojo.setPluginContext(context);
         mojo.project = project;
+        mojo.userProperties = new Properties();
         mojo.fileSets = new ArrayList<>(List.of(fileSet("migrations")));
         mojo.checksumFile = file;
         mojo.property = PROPERTY;
@@ -240,6 +270,16 @@ class CheckAndRecordMojoTest {
         @Override
         public void warn(CharSequence content) {
             warnings.add(content.toString());
+        }
+
+        @Override
+        public void warn(CharSequence content, Throwable error) {
+            warnings.add(content + ": " + error);
+        }
+
+        @Override
+        public void warn(Throwable error) {
+            warnings.add(error.toString());
         }
     }
 }

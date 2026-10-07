@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.TreeMap;
 
 /**
@@ -29,6 +30,9 @@ public class CheckMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     MavenProject project;
+
+    @Parameter(defaultValue = "${session.userProperties}", readonly = true, required = true)
+    Properties userProperties;
 
     /** Files whose paths and contents are part of the checksum. */
     @Parameter
@@ -60,6 +64,7 @@ public class CheckMojo extends AbstractMojo {
         if (fileSets.isEmpty() && plugins.isEmpty()) {
             throw new MojoExecutionException("Configure at least one <fileSet> or <plugin> as input");
         }
+        verifyPropertyNotPreset();
         Map<String, String> values = new TreeMap<>();
         for (String plugin : plugins) {
             values.put("plugin:" + plugin, PluginFingerprint.of(project, plugin));
@@ -70,10 +75,8 @@ public class CheckMojo extends AbstractMojo {
             Decision decision = Decision.decide(checksum, ChecksumFile.read(checksumFile.toPath()),
                     outputs.stream().map(File::toPath).toList(), force);
             if (!decision.upToDate()) {
-                // the step may now rewrite its outputs and fail; the old record must not outlive that
-                Files.deleteIfExists(checksumFile.toPath());
+                deleteRecord();
             }
-            warnIfDefinedInPom();
             project.getProperties().setProperty(property, String.valueOf(decision.upToDate()));
             getPluginContext().put(propertyKey(property), Boolean.TRUE);
             getPluginContext().put(contextKey(checksumFile), checksum);
@@ -83,12 +86,30 @@ public class CheckMojo extends AbstractMojo {
         }
     }
 
-    /** Maven substitutes a property defined in the POM before this goal runs, so the skip parameter never sees ours. */
-    private void warnIfDefinedInPom() {
-        if (project.getProperties().containsKey(property) && !getPluginContext().containsKey(propertyKey(property))) {
-            getLog().warn("The property " + property + " is defined in the POM (or a parent). Maven substitutes ${"
-                    + property + "} before the check goal runs, so the skip parameter of the step will not see the"
-                    + " computed value. Remove it from <properties>.");
+    /**
+     * Maven substitutes a property known at model building time before this goal runs, so the skip parameter of the
+     * step never sees the computed value. A -D user property is a deliberate override and only warned about.
+     */
+    private void verifyPropertyNotPreset() throws MojoExecutionException {
+        if (userProperties.containsKey(property)) {
+            getLog().warn("The property " + property + " is set on the command line. Maven substitutes ${" + property
+                    + "} before the check goal runs, so the skip parameter of the step uses the command-line value.");
+        } else if (project.getProperties().containsKey(property)
+                && !getPluginContext().containsKey(propertyKey(property))) {
+            throw new MojoExecutionException("The property " + property + " is already defined, in the <properties>"
+                    + " of this POM, a parent or a settings.xml profile. Maven substitutes ${" + property
+                    + "} before the check goal runs, so the skip parameter of the step would never see the computed"
+                    + " value. Remove the definition.");
+        }
+    }
+
+    /** The step may now rewrite its outputs and fail; the old record must not outlive that. */
+    private void deleteRecord() {
+        try {
+            Files.deleteIfExists(checksumFile.toPath());
+        } catch (IOException e) {
+            getLog().warn("Could not delete the old record " + checksumFile + "; if the step fails, the next build"
+                    + " may consider it up to date", e);
         }
     }
 

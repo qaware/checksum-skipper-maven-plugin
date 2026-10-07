@@ -50,9 +50,11 @@ since the last successful run.
 </plugin>
 ```
 
-On the expensive plugin, set `<skip>${jooq.codegen.skip}</skip>`. Do not define the property in `<properties>` of
-this POM or a parent: Maven would substitute that value before `check` runs (`check` logs a warning). If that plugin registers its output directory as a
-source root only when it runs, add the directory with `build-helper-maven-plugin:add-source`.
+On the expensive plugin, set `<skip>${jooq.codegen.skip}</skip>`. Do not define the property anywhere else: Maven
+substitutes a value from `<properties>` of this POM or a parent, or from a `settings.xml` profile, before `check`
+runs, so `check` fails the build. A `-Djooq.codegen.skip=…` on the command line overrides the computed value the same
+way; `check` only warns about it. If that plugin registers its output directory as a source root only when it runs,
+add the directory with `build-helper-maven-plugin:add-source`.
 
 ## When is a step up to date?
 
@@ -88,6 +90,11 @@ the next build considers the step up to date. List such plugins under `plugins` 
 
 Bind `record` after the expensive step. Its default phase `process-sources` fits steps in `generate-sources`; for
 steps in `generate-resources` bind it to `process-resources`.
+
+`check` deletes the old record whenever it decides to run the step, including when only an output is missing or the
+run is forced. A build that stops before `record`, such as `mvn generate-sources`, therefore runs the step again next
+time. To avoid that, bind `record` to the same phase as the step and declare this plugin after the step's plugin in
+the POM: Maven runs executions of one phase in plugin declaration order.
 
 ## License
 
