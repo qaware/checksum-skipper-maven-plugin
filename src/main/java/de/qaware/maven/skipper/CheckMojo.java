@@ -11,6 +11,7 @@ import org.apache.maven.shared.model.fileset.FileSet;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,8 @@ import java.util.TreeMap;
 /**
  * Calculates a checksum over the configured inputs and sets {@link #property} to {@code true} if the inputs are
  * unchanged since the last run recorded by the {@code record} goal and all outputs exist, else to {@code false}.
+ * When the step is not up to date, the old record is deleted, so a step that fails half-way is never mistaken for
+ * up to date, not even after the inputs are reverted.
  * Pass the property to the skip parameter of the expensive plugin.
  */
 @Mojo(name = "check", defaultPhase = LifecyclePhase.INITIALIZE, threadSafe = true)
@@ -66,12 +69,31 @@ public class CheckMojo extends AbstractMojo {
                     InputFiles.resolve(project.getBasedir().toPath(), fileSets), values);
             Decision decision = Decision.decide(checksum, ChecksumFile.read(checksumFile.toPath()),
                     outputs.stream().map(File::toPath).toList(), force);
+            if (!decision.upToDate()) {
+                // the step may now rewrite its outputs and fail; the old record must not outlive that
+                Files.deleteIfExists(checksumFile.toPath());
+            }
+            warnIfDefinedInPom();
             project.getProperties().setProperty(property, String.valueOf(decision.upToDate()));
+            getPluginContext().put(propertyKey(property), Boolean.TRUE);
             getPluginContext().put(contextKey(checksumFile), checksum);
             getLog().info(property + "=" + decision.upToDate() + " (" + decision.reason() + ")");
         } catch (IOException | UncheckedIOException e) {
             throw new MojoExecutionException("Could not check the inputs for " + checksumFile, e);
         }
+    }
+
+    /** Maven substitutes a property defined in the POM before this goal runs, so the skip parameter never sees ours. */
+    private void warnIfDefinedInPom() {
+        if (project.getProperties().containsKey(property) && !getPluginContext().containsKey(propertyKey(property))) {
+            getLog().warn("The property " + property + " is defined in the POM (or a parent). Maven substitutes ${"
+                    + property + "} before the check goal runs, so the skip parameter of the step will not see the"
+                    + " computed value. Remove it from <properties>.");
+        }
+    }
+
+    private static String propertyKey(String property) {
+        return "skipper:property:" + property;
     }
 
     /**

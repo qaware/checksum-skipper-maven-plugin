@@ -1,6 +1,7 @@
 package de.qaware.maven.skipper;
 
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.logging.SystemStreamLog;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.shared.model.fileset.FileSet;
 import org.junit.jupiter.api.BeforeEach;
@@ -114,16 +115,77 @@ class CheckAndRecordMojoTest {
         Files.createDirectories(baseDir.resolve("api"));
         Files.writeString(baseDir.resolve("api/spec.yaml"), "openapi: 3.1.0");
         File apiChecksumFile = baseDir.resolve("target/api.sha256").toFile();
+        File soloChecksumFile = baseDir.resolve("target/solo-migrations.sha256").toFile();
+        File soloApiChecksumFile = baseDir.resolve("target/solo-api.sha256").toFile();
+        // reference: each input on its own, with fresh contexts
+        build(soloChecksumFile, "migrations");
+        build(soloApiChecksumFile, "api");
+
         Map<Object, Object> context = new HashMap<>();
         check(context, checksumFile).execute();
         CheckMojo apiCheck = check(context, apiChecksumFile);
         apiCheck.fileSets = new ArrayList<>(List.of(fileSet("api")));
         apiCheck.execute();
-
         record(context, checksumFile).execute();
         record(context, apiChecksumFile).execute();
 
-        assertThat(Files.readString(checksumFile.toPath())).isNotEqualTo(Files.readString(apiChecksumFile.toPath()));
+        assertThat(Files.readString(soloChecksumFile.toPath())).isNotEqualTo(Files.readString(soloApiChecksumFile.toPath()));
+        assertThat(checksumFile).hasSameTextualContentAs(soloChecksumFile);
+        assertThat(apiChecksumFile).hasSameTextualContentAs(soloApiChecksumFile);
+    }
+
+    @Test
+    void failedStepThenRevertedInputIsNotUpToDate() throws Exception {
+        Path migration = baseDir.resolve("migrations/V1.sql");
+        build();
+        Files.writeString(migration, "create table a (id int, name text);");
+        check(new HashMap<>(), checksumFile).execute();
+        // the expensive step half-wrote its outputs and failed, record never ran
+        Files.writeString(migration, "create table a (id int);");
+
+        check(new HashMap<>(), checksumFile).execute();
+
+        assertThat(project.getProperties()).containsEntry(PROPERTY, "false");
+    }
+
+    @Test
+    void propertyDefinedInThePomWarns() throws Exception {
+        project.getProperties().setProperty(PROPERTY, "false");
+        RecordingLog log = new RecordingLog();
+        CheckMojo check = check(new HashMap<>(), checksumFile);
+        check.setLog(log);
+
+        check.execute();
+
+        assertThat(project.getProperties()).containsEntry(PROPERTY, "false");
+        assertThat(log.warnings).singleElement().asString()
+                .contains(PROPERTY).contains("<properties>");
+    }
+
+    @Test
+    void propertySetByAnEarlierCheckDoesNotWarn() throws Exception {
+        RecordingLog log = new RecordingLog();
+        Map<Object, Object> context = new HashMap<>();
+        for (int i = 0; i < 2; i++) {
+            CheckMojo check = check(context, checksumFile);
+            check.setLog(log);
+            check.execute();
+        }
+
+        assertThat(log.warnings).isEmpty();
+        assertThat(project.getProperties()).containsEntry(PROPERTY, "false");
+    }
+
+    @Test
+    void undefinedPropertyDoesNotWarn() throws Exception {
+        RecordingLog log = new RecordingLog();
+        CheckMojo check = check(new HashMap<>(), checksumFile);
+        check.setLog(log);
+
+        check.execute();
+
+        assertThat(log.warnings).isEmpty();
+        assertThat(project.getProperties()).containsEntry(PROPERTY, "false");
     }
 
     @Test
@@ -138,9 +200,15 @@ class CheckAndRecordMojoTest {
 
     /** One successful build: check, the expensive step, record. */
     private void build() throws MojoExecutionException {
+        build(checksumFile, "migrations");
+    }
+
+    private void build(File file, String directory) throws MojoExecutionException {
         Map<Object, Object> context = new HashMap<>();
-        check(context, checksumFile).execute();
-        record(context, checksumFile).execute();
+        CheckMojo check = check(context, file);
+        check.fileSets = new ArrayList<>(List.of(fileSet(directory)));
+        check.execute();
+        record(context, file).execute();
     }
 
     private CheckMojo check(Map<Object, Object> context, File file) {
@@ -164,5 +232,14 @@ class CheckAndRecordMojoTest {
         FileSet set = new FileSet();
         set.setDirectory(directory);
         return set;
+    }
+
+    private static final class RecordingLog extends SystemStreamLog {
+        final List<String> warnings = new ArrayList<>();
+
+        @Override
+        public void warn(CharSequence content) {
+            warnings.add(content.toString());
+        }
     }
 }

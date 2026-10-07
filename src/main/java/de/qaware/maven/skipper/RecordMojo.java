@@ -11,7 +11,8 @@ import java.io.IOException;
 
 /**
  * Records the checksum calculated by the {@code check} goal. Bind it to a phase after the expensive step, so a
- * failed step leaves the previous checksum in place and the next build runs the step again.
+ * failed step records nothing (the {@code check} goal already discarded the old record) and the next build runs the
+ * step again. The checksum is stored whether or not the step actually ran.
  */
 @Mojo(name = "record", defaultPhase = LifecyclePhase.PROCESS_SOURCES, threadSafe = true)
 public class RecordMojo extends AbstractMojo {

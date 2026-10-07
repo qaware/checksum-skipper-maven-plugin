@@ -5,8 +5,9 @@ since the last successful run.
 
 - `check` (default phase `initialize`) hashes the inputs and sets a property to `true` if the step is up to date.
 - The expensive plugin takes that property as its `skip` parameter.
-- `record` (default phase `process-sources`) stores the checksum after the step succeeded. A failed step records
-  nothing, so the next build runs it again.
+- `record` (default phase `process-sources`) stores the checksum after the step succeeded. `check` discards the old
+  record as soon as it decides to run the step, so a step that fails records nothing and the next build runs it
+  again, even if the inputs are reverted meanwhile.
 
 ## Usage
 
@@ -49,22 +50,30 @@ since the last successful run.
 </plugin>
 ```
 
-On the expensive plugin, set `<skip>${jooq.codegen.skip}</skip>`. If that plugin registers its output directory as a
+On the expensive plugin, set `<skip>${jooq.codegen.skip}</skip>`. Do not define the property in `<properties>` of
+this POM or a parent: Maven would substitute that value before `check` runs (`check` logs a warning). If that plugin registers its output directory as a
 source root only when it runs, add the directory with `build-helper-maven-plugin:add-source`.
 
 ## When is a step up to date?
 
 All of these must hold:
 
-1. `skipper.force` is not set (`mvn … -Dskipper.force` forces a run).
+1. `skipper.force` is not set (`mvn verify -Dskipper.force` forces a run).
 2. `checksumFile` exists. It lives in `target/`, so `mvn clean` forces a run.
 3. Every `output` exists, and directories are not empty.
 4. The checksum equals the recorded one. It covers:
    - the path and content of every file in `fileSets`,
    - version, dependencies and configuration of every plugin in `plugins`.
 
+   Plugin configuration values are interpolated, so a fingerprinted plugin whose configuration uses
+   `${project.version}` does rerun on a version bump.
+
    The project version is not part of it, so a release bump does not rerun the step. Plugin configuration holds
    interpolated absolute paths, so moving the checkout reruns the step once.
+
+`record` stores the checksum whether or not the step actually ran. If you skip the step by other means, for example
+`-D<skip property of that plugin>=true` on the command line, while inputs changed, the new checksum is recorded and
+the next build considers the step up to date. List such plugins under `plugins` or avoid doing that.
 
 ## Parameters
 
