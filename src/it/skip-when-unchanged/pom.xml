@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>de.qaware.maven.it</groupId>
+    <artifactId>skip-when-unchanged</artifactId>
+    <version>1.0</version>
+    <packaging>pom</packaging>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>@project.groupId@</groupId>
+                <artifactId>@project.artifactId@</artifactId>
+                <version>@project.version@</version>
+                <configuration>
+                    <checksumFile>${project.build.directory}/inputs.sha256</checksumFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>check-codegen-inputs</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>src/main/db</directory>
+                                </fileSet>
+                            </fileSets>
+                            <plugins>
+                                <plugin>org.apache.maven.plugins:maven-antrun-plugin</plugin>
+                            </plugins>
+                            <property>codegen.skip</property>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>record-codegen-inputs</id>
+                        <goals>
+                            <goal>record</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>codegen</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.directory}"/>
+                                <echo file="${project.build.directory}/decisions.txt" append="true">${codegen.skip},</echo>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
