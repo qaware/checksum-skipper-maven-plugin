@@ -12,49 +12,74 @@ since the last successful run.
 ## Usage
 
 ```xml
-<plugin>
-    <groupId>de.qaware.maven</groupId>
-    <artifactId>checksum-skipper-maven-plugin</artifactId>
-    <version>1.0.0</version>
-    <configuration>
-        <checksumFile>${project.build.directory}/jooq-inputs.sha256</checksumFile>
-    </configuration>
-    <executions>
-        <execution>
-            <id>check-jooq-inputs</id>
-            <goals>
-                <goal>check</goal>
-            </goals>
-            <configuration>
-                <fileSets>
-                    <fileSet>
-                        <directory>src/main/resources/db/migration</directory>
-                    </fileSet>
-                </fileSets>
-                <plugins>
-                    <plugin>org.testcontainers:testcontainers-jooq-codegen-maven-plugin</plugin>
-                </plugins>
-                <outputs>
-                    <output>${project.build.directory}/generated-sources/jooq</output>
-                </outputs>
-                <property>jooq.codegen.skip</property>
-            </configuration>
-        </execution>
-        <execution>
-            <id>record-jooq-inputs</id>
-            <goals>
-                <goal>record</goal>
-            </goals>
-        </execution>
-    </executions>
-</plugin>
+<plugins>
+    <plugin>
+        <groupId>de.qaware.maven</groupId>
+        <artifactId>checksum-skipper-maven-plugin</artifactId>
+        <version>1.0.0</version>
+        <executions>
+            <execution>
+                <id>check-expensive-plugin-inputs</id>
+                <goals>
+                    <goal>check</goal>
+                </goals>
+                <configuration>
+                    <fileSets>
+                        <fileSet>
+                            <directory>src/main/expensive-plugin</directory>
+                        </fileSet>
+                    </fileSets>
+                    <plugins>
+                        <plugin>com.example:expensive-maven-plugin</plugin>
+                    </plugins>
+                    <outputs>
+                        <output>${project.build.directory}/generated-sources/expensive-plugin</output>
+                    </outputs>
+                    <property>expensive-plugin.skip</property>
+                    <checksumFile>${project.build.directory}/expensive-plugin-inputs.sha256</checksumFile>
+                </configuration>
+            </execution>
+            <execution>
+                <id>record-expensive-plugin-inputs</id>
+                <goals>
+                    <goal>record</goal>
+                </goals>
+                <configuration>
+                    <checksumFile>${project.build.directory}/expensive-plugin-inputs.sha256</checksumFile>
+                </configuration>
+            </execution>
+        </executions>
+    </plugin>
+    <plugin>
+        <groupId>com.example</groupId>
+        <artifactId>expensive-maven-plugin</artifactId>
+        <version>1.0.0</version>
+        <executions>
+            <execution>
+                <id>generate</id>
+                <phase>generate-sources</phase>
+                <goals>
+                    <goal>generate</goal>
+                </goals>
+                <configuration>
+                    <skip>${expensive-plugin.skip}</skip>
+                    <inputDirectory>src/main/expensive-plugin</inputDirectory>
+                    <outputDirectory>${project.build.directory}/generated-sources/expensive-plugin</outputDirectory>
+                </configuration>
+            </execution>
+        </executions>
+    </plugin>
+</plugins>
 ```
 
-On the expensive plugin, set `<skip>${jooq.codegen.skip}</skip>`. Do not define the property anywhere else: Maven
-substitutes a value from `<properties>` of this POM or a parent, or from a `settings.xml` profile, before `check`
-runs, so `check` fails the build. A `-Djooq.codegen.skip=…` on the command line overrides the computed value the same
-way; `check` only warns about it. If that plugin registers its output directory as a source root only when it runs,
-add the directory with `build-helper-maven-plugin:add-source`.
+`record` stores the checksum of the `check` execution with the same `checksumFile`. To skip several steps, declare
+one such pair per step, each with its own `checksumFile` and `property`.
+
+The expensive plugin takes the property as `<skip>${expensive-plugin.skip}</skip>`. Do not define the property
+anywhere else: Maven substitutes a value from `<properties>` of this POM or a parent, or from a `settings.xml`
+profile, before `check` runs, so `check` fails the build. A `-Dexpensive-plugin.skip=…` on the command line overrides
+the computed value the same way; `check` only warns about it. If that plugin registers its output directory as a
+source root only when it runs, add the directory with `build-helper-maven-plugin:add-source`.
 
 ## When is a step up to date?
 
