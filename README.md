@@ -1,5 +1,8 @@
 # checksum-skipper-maven-plugin
 
+[![Build](https://github.com/qaware/checksum-skipper-maven-plugin/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/qaware/checksum-skipper-maven-plugin/actions/workflows/build.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/de.qaware.maven/checksum-skipper-maven-plugin)](https://central.sonatype.com/artifact/de.qaware.maven/checksum-skipper-maven-plugin)
+
 Skips an expensive build step, such as code generation from a database container, while its inputs are unchanged
 since the last successful run.
 
